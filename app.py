@@ -1,120 +1,163 @@
+
 import streamlit as st
 import json
 import random
 import os
-import io
+from gtts import gTTS
 
-# --- KÜTÜPHANE KONTROLÜ ---
-try:
-    from gtts import gTTS
-except ImportError:
-    st.error("⚠️ HATA: 'requirements.txt' dosyası eksik veya hatalı.")
-    st.stop()
+# --- SAYFA AYARLARI ---
+st.set_page_config(
+    page_title="IELTS Master",
+    page_icon="🎓",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-st.set_page_config(page_title="IELTS Master", page_icon="🎓", layout="centered")
-
-# --- AKILLI DOSYA BULUCU (Senin durumun için özel) ---
-def find_data_file(filename="ielts_words.json"):
-    # 1. Olduğu yere bak
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. Bütün alt klasörleri tara (VOC, Data, vs. ne varsa)
-    for root, dirs, files in os.walk(current_dir):
-        # Büyük/Küçük harf duyarlılığını kaldırmak için hepsini küçük harfe çevirip ara
-        for file in files:
-            if file.lower() == filename.lower():
-                return os.path.join(root, file)
-            
-    return None
+# --- CSS STİL ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #f8f9fa; }
+    .kelime-kutusu {
+        background-color: #2e86c1;
+        color: white;
+        padding: 25px;
+        border-radius: 15px;
+        text-align: center;
+        font-size: 32px;
+        font-weight: bold;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    .related-box {
+        background-color: #e8f4f8;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 6px solid #2e86c1;
+        margin-top: 15px;
+        color: #2c3e50;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 55px;
+        font-weight: bold;
+        font-size: 18px;
+        transition: all 0.3s;
+    }
+    .stButton>button:hover {
+        transform: scale(1.02);
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- VERİ YÜKLEME ---
 @st.cache_data
 def load_data():
-    file_path = find_data_file("ielts_words.json")
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Senin özel klasörün
+    user_path = r"C:\Users\oktay\OneDrive\Masaüstü\VOC"
     
-    if not file_path:
-        return None
+    possible_paths = [
+        "ielts_words.json",
+        os.path.join(current_dir, "ielts_words.json"),
+        os.path.join(user_path, "ielts_words.json")
+    ]
     
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return None
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if data: return data
+            except:
+                continue
+    return []
 
-# --- SES MOTORU ---
-def get_audio_bytes(text):
+# --- SES FONKSİYONU (GARANTİ YÖNTEM: DİSKE KAYDETME) ---
+def text_to_speech(text):
+    filename = "gecici_ses.mp3"
     try:
+        # 1. Sesi oluştur
         tts = gTTS(text=text, lang='en')
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp
-    except:
+        
+        # 2. Dosya olarak kaydet (iPhone bunu daha çok sever)
+        tts.save(filename)
+        
+        # 3. Dosyayı binary (veri) olarak oku
+        with open(filename, "rb") as f:
+            audio_bytes = f.read()
+            
+        return audio_bytes
+    except Exception as e:
+        st.error(f"Ses hatası: {e}")
         return None
 
-# --- ANA PROGRAM ---
+# --- ANA UYGULAMA ---
 def main():
     st.title("🎓 IELTS Master")
+    st.caption("🚀 Senin Kişisel Kelime Koçun")
     
     data = load_data()
-    
-    # --- EĞER DOSYA HALA BULUNAMAZSA ---
+
     if not data:
-        st.error("⚠️ DOSYA BULUNAMADI!")
-        st.warning("Kod bütün klasörleri aradı ama 'ielts_words.json' dosyasını bulamadı.")
-        
-        # Hata ayıklama: Hangi klasörleri gördüğünü yazdıralım
-        st.write("👀 Kodun taradığı klasörler:")
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        folder_list = []
-        for root, dirs, files in os.walk(current_dir):
-            folder_name = os.path.basename(root)
-            if folder_name: folder_list.append(f"📁 {folder_name}")
-            for f in files:
-                folder_list.append(f"  └─ 📄 {f}")
-        st.code("\n".join(folder_list))
+        st.error("⚠️ Veri dosyası (ielts_words.json) bulunamadı!")
+        st.warning("Lütfen önce pdf_botu.py'yi çalıştır.")
         return
 
-    # --- UYGULAMA ---
-    if 'word' not in st.session_state:
-        st.session_state.word = random.choice(data)
+    # Oturum Yönetimi
+    if 'current_word' not in st.session_state:
+        st.session_state.current_word = random.choice(data)
         st.session_state.show_meaning = False
-        st.session_state.audio_data = None
+        st.session_state.audio_bytes = None
 
-    word = st.session_state.word
+    word = st.session_state.current_word
 
-    # Kelime Kartı
-    st.markdown(
-        f"""
-        <div style="background-color:#2e86c1; padding:20px; border-radius:15px; text-align:center; color:white; margin-bottom:20px;">
-            <h1 style='margin:0; font-size: 32px;'>{word['word'].upper()}</h1>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    # --- KELİME KARTI ---
+    st.markdown(f'<div class="kelime-kutusu">{word["word"].upper()}</div>', unsafe_allow_html=True)
 
-    # Ses
-    if st.session_state.audio_data is None:
-        st.session_state.audio_data = get_audio_bytes(word['word'])
+    # Ses Oynatıcı
+    if st.session_state.audio_bytes is None:
+        with st.spinner('Ses hazırlanıyor...'):
+            st.session_state.audio_bytes = text_to_speech(word["word"])
     
-    if st.session_state.audio_data:
-        st.audio(st.session_state.audio_data, format='audio/mpeg', start_time=0, key=f"audio_{word['word']}")
+    if st.session_state.audio_bytes:
+        # Formatı 'audio/mpeg' yaptık, iPhone standardı budur.
+        st.audio(st.session_state.audio_bytes, format='audio/mpeg')
+    else:
+        st.warning("Ses yüklenemedi.")
 
-    # Butonlar
-    col1, col2 = st.columns(2)
+    # --- BUTONLAR ---
+    col1, col2 = st.columns([1, 1])
 
     if not st.session_state.show_meaning:
-        if col1.button("🔍 ANLAMI GÖSTER", use_container_width=True):
-            st.session_state.show_meaning = True
-            st.rerun()
+        with col1:
+             if st.button("🔍 ANLAMI GÖSTER", type="primary"):
+                st.session_state.show_meaning = True
+                st.rerun()
     else:
-        st.success(f"🇬🇧 {word.get('eng_def', '-')}")
-        st.info(f"🇹🇷 {word.get('tr_def', '-')}")
-        
-        if st.button("➡️ SIRADAKİ KELİME", use_container_width=True):
-            st.session_state.word = random.choice(data)
+        # Anlamlar
+        st.success(f"🇬🇧 {word['eng_def']}")
+        st.info(f"🇹🇷 {word['tr_def']}")
+
+        # Türevler
+        if word.get('related') and len(word['related']) > 0:
+            st.markdown(f"""
+            <div class="related-box">
+                <b>🔗 Kelime Ailesi:</b> {', '.join(word['related'])}
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Örnekler
+        if word.get('sentences'):
+            st.markdown("#### 📝 Örnek Cümleler")
+            for ex in word['sentences']:
+                st.write(f"• {ex}")
+
+        st.markdown("---")
+        if st.button("➡️ SIRADAKİ KELİME"):
+            st.session_state.current_word = random.choice(data)
             st.session_state.show_meaning = False
-            st.session_state.audio_data = None
+            st.session_state.audio_bytes = None
             st.rerun()
 
 if __name__ == "__main__":

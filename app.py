@@ -3,7 +3,6 @@ import json
 import random
 import os
 from gtts import gTTS
-import io
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -50,12 +49,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- VERİ YÜKLEME (EVRENSEL YÖNTEM) ---
+# --- VERİ YÜKLEME ---
 @st.cache_data
 def load_data():
-    # Kodun çalıştığı klasörü bul
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Yanındaki json dosyasını bul
     file_path = os.path.join(current_dir, "ielts_words.json")
     
     if os.path.exists(file_path):
@@ -67,17 +64,23 @@ def load_data():
             return []
     return []
 
-# --- SES FONKSİYONU ---
-def text_to_speech(text):
-    # Streamlit Cloud'da dosya kaydetme sorunu olmaması için 
-    # sesi doğrudan hafızadan (BytesIO) veriyoruz.
+# --- SES FONKSİYONU (CLOUD UYUMLU) ---
+def get_audio_bytes(text):
     try:
+        # 1. Ses dosyasını oluştur
         tts = gTTS(text=text, lang='en')
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp
-    except:
+        
+        # 2. Geçici bir dosyaya kaydet (Cloud diskine)
+        temp_file = "temp_audio.mp3"
+        tts.save(temp_file)
+        
+        # 3. Dosyayı binary olarak geri oku
+        with open(temp_file, "rb") as f:
+            audio_bytes = f.read()
+            
+        return audio_bytes
+    except Exception as e:
+        st.error(f"Ses Hatası: {e}")
         return None
 
 # --- ANA UYGULAMA ---
@@ -89,61 +92,26 @@ def main():
 
     if not data:
         st.error("⚠️ Veri dosyası (ielts_words.json) bulunamadı!")
-        st.info("Github'a 'ielts_words.json' dosyasını yüklediğinden emin ol.")
+        st.info("Github'a dosyanın yüklendiğinden emin ol.")
         return
 
     # Oturum Yönetimi
     if 'current_word' not in st.session_state:
         st.session_state.current_word = random.choice(data)
         st.session_state.show_meaning = False
-        st.session_state.audio_bytes = None
+        # Sesi sıfırla
+        st.session_state.audio_data = None 
 
     word = st.session_state.current_word
 
     # --- KELİME KARTI ---
     st.markdown(f'<div class="kelime-kutusu">{word["word"].upper()}</div>', unsafe_allow_html=True)
 
-    # Ses Oynatıcı
-    if st.session_state.audio_bytes is None:
-        with st.spinner('Ses hazırlanıyor...'):
-            st.session_state.audio_bytes = text_to_speech(word["word"])
-    
-    if st.session_state.audio_bytes:
-        st.audio(st.session_state.audio_bytes, format='audio/mp3')
-
-    # --- BUTONLAR ---
-    col1, col2 = st.columns([1, 1])
-
-    if not st.session_state.show_meaning:
-        with col1:
-             if st.button("🔍 ANLAMI GÖSTER", type="primary"):
-                st.session_state.show_meaning = True
-                st.rerun()
-    else:
-        # Anlamlar
-        st.success(f"🇬🇧 {word['eng_def']}")
-        st.info(f"🇹🇷 {word['tr_def']}")
-
-        # Türevler
-        if word.get('related') and len(word['related']) > 0:
-            st.markdown(f"""
-            <div class="related-box">
-                <b>🔗 Kelime Ailesi:</b> {', '.join(word['related'])}
-            </div>
-            """, unsafe_allow_html=True)
-
-        # Örnekler
-        if word.get('sentences'):
-            st.markdown("#### 📝 Örnek Cümleler")
-            for ex in word['sentences']:
-                st.write(f"• {ex}")
-
-        st.markdown("---")
-        if st.button("➡️ SIRADAKİ KELİME"):
-            st.session_state.current_word = random.choice(data)
-            st.session_state.show_meaning = False
-            st.session_state.audio_bytes = None
-            st.rerun()
-
-if __name__ == "__main__":
-    main()
+    # --- SES OYNATICI ---
+    # Sesi sadece kelime değiştiğinde veya ilk açılışta oluştur
+    if st.session_state.audio_data is None:
+        with st.spinner('Ses oluşturuluyor...'):
+            st.session_state.audio_data = get_audio_bytes(word["word"])
+            
+    if st.session_state.audio_data:
+        # İŞTE KRİTİK NOKTA: format='audio/mpeg' (iPhone bunu sever)

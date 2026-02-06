@@ -3,115 +3,125 @@ import json
 import random
 import os
 from gtts import gTTS
+import time
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(
-    page_title="IELTS Master",
-    page_icon="🎓",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="IELTS Master", page_icon="🎓", layout="centered")
 
 # --- CSS STİL ---
 st.markdown("""
     <style>
-    .stApp { background-color: #f8f9fa; }
     .kelime-kutusu {
         background-color: #2e86c1;
         color: white;
-        padding: 25px;
-        border-radius: 15px;
+        padding: 20px;
+        border-radius: 10px;
         text-align: center;
-        font-size: 32px;
+        font-size: 30px;
         font-weight: bold;
         margin-bottom: 20px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
     }
-    .related-box {
-        background-color: #e8f4f8;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 6px solid #2e86c1;
-        margin-top: 15px;
-        color: #2c3e50;
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 10px;
-        height: 55px;
-        font-weight: bold;
-        font-size: 18px;
-        transition: all 0.3s;
-    }
-    .stButton>button:hover {
-        transform: scale(1.02);
-    }
+    .stButton>button { width: 100%; height: 50px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- VERİ YÜKLEME ---
 @st.cache_data
 def load_data():
+    # 1. Klasör yolunu bul
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, "ielts_words.json")
     
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if data: return data
-        except:
-            return []
-    return []
-
-# --- SES FONKSİYONU (CLOUD UYUMLU) ---
-def get_audio_bytes(text):
+    # 2. Dosyayı kontrol et
+    if not os.path.exists(file_path):
+        return None, f"Dosya bulunamadı: {file_path}"
+    
+    # 3. Yükle
     try:
-        # 1. Ses dosyasını oluştur
-        tts = gTTS(text=text, lang='en')
-        
-        # 2. Geçici bir dosyaya kaydet (Cloud diskine)
-        temp_file = "temp_audio.mp3"
-        tts.save(temp_file)
-        
-        # 3. Dosyayı binary olarak geri oku
-        with open(temp_file, "rb") as f:
-            audio_bytes = f.read()
-            
-        return audio_bytes
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data, "Başarılı"
     except Exception as e:
-        st.error(f"Ses Hatası: {e}")
+        return None, f"JSON Hatası: {str(e)}"
+
+# --- SES OLUŞTURMA ---
+def create_audio(text):
+    try:
+        tts = gTTS(text=text, lang='en')
+        filename = f"audio_{random.randint(1000,9999)}.mp3"
+        tts.save(filename)
+        with open(filename, "rb") as f:
+            audio_bytes = f.read()
+        return audio_bytes
+    except:
         return None
 
-# --- ANA UYGULAMA ---
+# --- ANA PROGRAM ---
 def main():
     st.title("🎓 IELTS Master")
-    st.caption("🚀 Senin Kişisel Kelime Koçun")
     
-    data = load_data()
-
-    if not data:
-        st.error("⚠️ Veri dosyası (ielts_words.json) bulunamadı!")
-        st.info("Github'a dosyanın yüklendiğinden emin ol.")
-        return
-
-    # Oturum Yönetimi
-    if 'current_word' not in st.session_state:
-        st.session_state.current_word = random.choice(data)
+    # Veriyi Yükle
+    data, message = load_data()
+    
+    # Hata Kontrolü
+    if data is None:
+        st.error(f"⚠️ HATA: {message}")
+        st.info("Lütfen GitHub'a 'ielts_words.json' dosyasını yüklediğinden emin ol.")
+        st.stop() # Programı burada durdur
+        
+    # Oturum Başlatma
+    if 'word' not in st.session_state:
+        st.session_state.word = random.choice(data)
         st.session_state.show_meaning = False
-        # Sesi sıfırla
-        st.session_state.audio_data = None 
+        st.session_state.audio_bytes = None
+        st.session_state.counter = 0
 
-    word = st.session_state.current_word
+    word = st.session_state.word
 
-    # --- KELİME KARTI ---
+    # --- 1. KELİME KARTI ---
     st.markdown(f'<div class="kelime-kutusu">{word["word"].upper()}</div>', unsafe_allow_html=True)
 
-    # --- SES OYNATICI ---
-    # Sesi sadece kelime değiştiğinde veya ilk açılışta oluştur
-    if st.session_state.audio_data is None:
-        with st.spinner('Ses oluşturuluyor...'):
-            st.session_state.audio_data = get_audio_bytes(word["word"])
-            
-    if st.session_state.audio_data:
-        # İŞTE KRİTİK NOKTA: format='audio/mpeg' (iPhone bunu sever)
+    # --- 2. SES (Try-Except bloğu ile korumalı) ---
+    try:
+        if st.session_state.audio_bytes is None:
+            st.session_state.audio_bytes = create_audio(word["word"])
+        
+        if st.session_state.audio_bytes:
+            # UNIQUE KEY: Her seferinde benzersiz bir kimlik veriyoruz
+            st.audio(
+                st.session_state.audio_bytes, 
+                format='audio/mpeg', 
+                start_time=0, 
+                key=f"audio_player_{st.session_state.counter}"
+            )
+    except Exception as e:
+        st.warning(f"Ses çalınamadı: {e}")
+
+    # --- 3. BUTONLAR ---
+    col1, col2 = st.columns(2)
+    
+    if not st.session_state.show_meaning:
+        if col1.button("🔍 ANLAMI GÖSTER"):
+            st.session_state.show_meaning = True
+            st.rerun()
+    else:
+        st.success(f"🇬🇧 {word['eng_def']}")
+        st.info(f"🇹🇷 {word['tr_def']}")
+        
+        # Türevler
+        if word.get('related'):
+            st.write(f"🔗 **Türevler:** {', '.join(word['related'])}")
+
+        st.markdown("---")
+        if st.button("➡️ SIRADAKİ"):
+            st.session_state.word = random.choice(data)
+            st.session_state.show_meaning = False
+            st.session_state.audio_bytes = None
+            st.session_state.counter += 1 # Key'i değiştirmek için sayacı artır
+            st.rerun()
+
+    # Alt bilgi (Debug için)
+    st.caption(f"Veritabanı: {len(data)} kelime yüklü.")
+
+if __name__ == "__main__":
+    main()

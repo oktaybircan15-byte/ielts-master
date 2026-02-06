@@ -3,6 +3,7 @@ import json
 import random
 import os
 from gtts import gTTS
+import io
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -49,46 +50,34 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- VERİ YÜKLEME ---
+# --- VERİ YÜKLEME (EVRENSEL YÖNTEM) ---
 @st.cache_data
 def load_data():
+    # Kodun çalıştığı klasörü bul
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Senin özel klasörün
-    user_path = r"C:\Users\oktay\OneDrive\Masaüstü\VOC"
+    # Yanındaki json dosyasını bul
+    file_path = os.path.join(current_dir, "ielts_words.json")
     
-    possible_paths = [
-        "ielts_words.json",
-        os.path.join(current_dir, "ielts_words.json"),
-        os.path.join(user_path, "ielts_words.json")
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if data: return data
-            except:
-                continue
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if data: return data
+        except:
+            return []
     return []
 
-# --- SES FONKSİYONU (GARANTİ YÖNTEM: DİSKE KAYDETME) ---
+# --- SES FONKSİYONU ---
 def text_to_speech(text):
-    filename = "gecici_ses.mp3"
+    # Streamlit Cloud'da dosya kaydetme sorunu olmaması için 
+    # sesi doğrudan hafızadan (BytesIO) veriyoruz.
     try:
-        # 1. Sesi oluştur
         tts = gTTS(text=text, lang='en')
-        
-        # 2. Dosya olarak kaydet (iPhone bunu daha çok sever)
-        tts.save(filename)
-        
-        # 3. Dosyayı binary (veri) olarak oku
-        with open(filename, "rb") as f:
-            audio_bytes = f.read()
-            
-        return audio_bytes
-    except Exception as e:
-        st.error(f"Ses hatası: {e}")
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp
+    except:
         return None
 
 # --- ANA UYGULAMA ---
@@ -100,7 +89,7 @@ def main():
 
     if not data:
         st.error("⚠️ Veri dosyası (ielts_words.json) bulunamadı!")
-        st.warning("Lütfen önce pdf_botu.py'yi çalıştır.")
+        st.info("Github'a 'ielts_words.json' dosyasını yüklediğinden emin ol.")
         return
 
     # Oturum Yönetimi
@@ -120,10 +109,7 @@ def main():
             st.session_state.audio_bytes = text_to_speech(word["word"])
     
     if st.session_state.audio_bytes:
-        # Formatı 'audio/mpeg' yaptık, iPhone standardı budur.
-        st.audio(st.session_state.audio_bytes, format='audio/mpeg')
-    else:
-        st.warning("Ses yüklenemedi.")
+        st.audio(st.session_state.audio_bytes, format='audio/mp3')
 
     # --- BUTONLAR ---
     col1, col2 = st.columns([1, 1])

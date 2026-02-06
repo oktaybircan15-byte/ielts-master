@@ -4,31 +4,42 @@ import random
 import os
 import io
 
-# Kütüphane kontrolü (Hata vermemesi için)
+# --- KÜTÜPHANE KONTROLÜ ---
 try:
     from gtts import gTTS
 except ImportError:
-    st.error("⚠️ HATA: 'requirements.txt' eksik. Lütfen 'gTTS' ekleyin.")
+    st.error("⚠️ HATA: 'requirements.txt' dosyası eksik veya hatalı.")
     st.stop()
 
 st.set_page_config(page_title="IELTS Master", page_icon="🎓", layout="centered")
 
+# --- AKILLI DOSYA BULUCU (Senin durumun için özel) ---
+def find_data_file(filename="ielts_words.json"):
+    # 1. Olduğu yere bak
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 2. Bütün alt klasörleri tara (VOC, Data, vs. ne varsa)
+    for root, dirs, files in os.walk(current_dir):
+        # Büyük/Küçük harf duyarlılığını kaldırmak için hepsini küçük harfe çevirip ara
+        for file in files:
+            if file.lower() == filename.lower():
+                return os.path.join(root, file)
+            
+    return None
+
 # --- VERİ YÜKLEME ---
 @st.cache_data
 def load_data():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_dir, "ielts_words.json")
+    file_path = find_data_file("ielts_words.json")
     
-    if not os.path.exists(file_path):
-        return None  # Dosya yok
+    if not file_path:
+        return None
     
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if not data: return None # Dosya boş
-            return data
+            return json.load(f)
     except:
-        return None # Dosya bozuk
+        return None
 
 # --- SES MOTORU ---
 def get_audio_bytes(text):
@@ -45,24 +56,26 @@ def get_audio_bytes(text):
 def main():
     st.title("🎓 IELTS Master")
     
-    # Veriyi Yükle
     data = load_data()
     
-    # --- KRİTİK KONTROL ---
-    if data is None:
-        st.error("⚠️ Veri Dosyası Bulunamadı!")
-        st.warning("""
-        **Sorun:** 'ielts_words.json' dosyası GitHub'da yok veya içi boş.
+    # --- EĞER DOSYA HALA BULUNAMAZSA ---
+    if not data:
+        st.error("⚠️ DOSYA BULUNAMADI!")
+        st.warning("Kod bütün klasörleri aradı ama 'ielts_words.json' dosyasını bulamadı.")
         
-        **Çözüm:**
-        1. GitHub sayfana git (ielts-master).
-        2. 'Add file' -> 'Upload files' butonuna bas.
-        3. Bilgisayarındaki 'ielts_words.json' dosyasını yükle.
-        4. Sonra sayfayı yenile.
-        """)
-        return # Programı durdur
+        # Hata ayıklama: Hangi klasörleri gördüğünü yazdıralım
+        st.write("👀 Kodun taradığı klasörler:")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        folder_list = []
+        for root, dirs, files in os.walk(current_dir):
+            folder_name = os.path.basename(root)
+            if folder_name: folder_list.append(f"📁 {folder_name}")
+            for f in files:
+                folder_list.append(f"  └─ 📄 {f}")
+        st.code("\n".join(folder_list))
+        return
 
-    # Oturum Yönetimi
+    # --- UYGULAMA ---
     if 'word' not in st.session_state:
         st.session_state.word = random.choice(data)
         st.session_state.show_meaning = False
@@ -70,26 +83,24 @@ def main():
 
     word = st.session_state.word
 
-    # --- KELİME KARTI ---
+    # Kelime Kartı
     st.markdown(
         f"""
-        <div style="background-color:#2e86c1; padding:20px; border-radius:15px; text-align:center; color:white; margin-bottom:20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <h1 style='margin:0; font-size: 36px;'>{word['word'].upper()}</h1>
+        <div style="background-color:#2e86c1; padding:20px; border-radius:15px; text-align:center; color:white; margin-bottom:20px;">
+            <h1 style='margin:0; font-size: 32px;'>{word['word'].upper()}</h1>
         </div>
         """, 
         unsafe_allow_html=True
     )
 
-    # --- SES (iPhone Uyumlu) ---
-    # Sesi anlık oluşturuyoruz
+    # Ses
     if st.session_state.audio_data is None:
-         st.session_state.audio_data = get_audio_bytes(word['word'])
+        st.session_state.audio_data = get_audio_bytes(word['word'])
     
     if st.session_state.audio_data:
-        # Key: Sesin her kelimede yenilenmesini sağlar
         st.audio(st.session_state.audio_data, format='audio/mpeg', start_time=0, key=f"audio_{word['word']}")
 
-    # --- BUTONLAR ---
+    # Butonlar
     col1, col2 = st.columns(2)
 
     if not st.session_state.show_meaning:
@@ -97,15 +108,9 @@ def main():
             st.session_state.show_meaning = True
             st.rerun()
     else:
-        st.success(f"🇬🇧 {word.get('eng_def', '...')}")
-        st.info(f"🇹🇷 {word.get('tr_def', '...')}")
+        st.success(f"🇬🇧 {word.get('eng_def', '-')}")
+        st.info(f"🇹🇷 {word.get('tr_def', '-')}")
         
-        if word.get('sentences'):
-            st.markdown("#### 📝 Örnekler")
-            for ex in word['sentences']:
-                st.write(f"• {ex}")
-
-        st.markdown("---")
         if st.button("➡️ SIRADAKİ KELİME", use_container_width=True):
             st.session_state.word = random.choice(data)
             st.session_state.show_meaning = False
